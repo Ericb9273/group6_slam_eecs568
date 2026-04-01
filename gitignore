@@ -1,0 +1,7 @@
+slam_output/
+diagnostic_output/
+*.pcd
+*.pkl
+__pycache__/
+*.pyc
+.bag
