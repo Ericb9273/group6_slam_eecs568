@@ -1,5 +1,6 @@
 slam_output/
 diagnostic_output/
+accuracy_output/
 *.pcd
 *.pkl
 __pycache__/
