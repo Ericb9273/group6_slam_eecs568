@@ -6,3 +6,6 @@ accuracy_output/
 __pycache__/
 *.pyc
 .bag
+
+slam_output_heavy/
+slam_output_light/
