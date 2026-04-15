@@ -8,16 +8,13 @@ Main SLAM pipeline with 7 modes. Outputs trajectories and maps to `slam_output/<
 
 **Usage:**
 ```bash
-python slam.py --bag <path_to_bag> [--mode MODE] [--output DIR] [--submap-size N] [--max-scans N] [--view-map]
+python slam.py --bag <path_to_bag> [--mode MODE] [--output DIR]
 ```
 
 **Arguments:**
 - `--bag` (required): Path to ROS bag file
 - `--mode`: One or more modes, or 'all' (default: baseline)
 - `--output`: Output directory (default: slam_output)
-- `--submap-size`: Number of scans in local submap (default: 20)
-- `--max-scans`: Limit number of scans to process (default: all)
-- `--view-map`: Open 3D viewer after completion
 
 **Modes:**
 - `baseline`: LiDAR + odometry (reference)
@@ -32,7 +29,7 @@ python slam.py --bag <path_to_bag> [--mode MODE] [--output DIR] [--submap-size N
 ```bash
 python slam.py --bag data.bag --mode baseline
 python slam.py --bag data.bag --mode all
-python slam.py --bag data.bag --mode standard_degraded heavy_degraded_radar --view-map
+python slam.py --bag data.bag --mode standard_degraded heavy_degraded_radar
 ```
 
 **Outputs:** `slam_output/<mode>/`

@@ -848,7 +848,7 @@ def run_one_mode(mode, lidar_data, odom_data, radar1_data, radar2_data,
         trajectory, map_pcds, fitness_log, r_fit_log, w_log = run_slam(
             lidar_data, odom_data, T_l2b,
             radar1_data=radar1_data, radar2_data=radar2_data,
-            mode=mode, submap_size=args.submap_size)
+            mode=mode)
 
     traj_arr = save_results(trajectory, map_pcds, fitness_log, output_dir)
     visualize_mode(traj_arr, odom_data, output_dir, mode,
@@ -899,10 +899,7 @@ def main():
     parser.add_argument("--bag", required=True)
     parser.add_argument("--mode", nargs='+', default=["baseline"],
                         help="One or more modes, or 'all' (e.g. --mode degraded degraded_radar)")
-    parser.add_argument("--max-scans", type=int, default=None)
     parser.add_argument("--output", default="slam_output")
-    parser.add_argument("--submap-size", type=int, default=20)
-    parser.add_argument("--view-map", action="store_true")
     args = parser.parse_args()
 
     # Resolve modes
@@ -920,19 +917,11 @@ def main():
 
     T_l2b = get_lidar_to_base()
     lidar_data, odom_data, radar1_data, radar2_data = extract_data(
-        args.bag, args.max_scans, read_radar=need_radar)
+        args.bag, read_radar=need_radar)
 
     for mode in modes:
         run_one_mode(mode, lidar_data, odom_data,
                      radar1_data, radar2_data, T_l2b, args)
-
-    if args.view_map:
-        last_dir = os.path.join(args.output, modes[-1])
-        map_path = os.path.join(last_dir, "global_map.pcd")
-        if os.path.exists(map_path):
-            pcd = o3d.io.read_point_cloud(map_path)
-            o3d.visualization.draw_geometries([pcd],
-                window_name=f"Map: {modes[-1]}", width=1280, height=720)
 
     print(f"\n[DONE] Results in {args.output}/")
     for m in modes:
