@@ -57,7 +57,7 @@ python radar_slam.py --bag <path_to_bag> [--output DIR]
 **Outputs:** `radar_slam_output/`
 - `trajectory.txt`: Radar-only trajectory
 - `global_map.pcd`: 2D radar point cloud
-- `comparison.png`: Radar vs odometry trajectory plot
+- `radar_slam.png`: Combined map + SLAM/odometry trajectories
 
 ---
 

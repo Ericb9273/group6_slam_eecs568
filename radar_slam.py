@@ -6,8 +6,7 @@ Pure radar SLAM with identity transforms, outlier filtering,
 and tuned ICP for sparse 2D radar data.
 
 Outputs:
-  - Radar SLAM trajectory vs. odometry comparison graph
-  - 2D point cloud map of radar SLAM
+  - Combined image with radar map and both SLAM/odometry trajectories
 
 Usage:
   python radar_slam.py --bag ~/datasets/03_80m_other_sensor.bag
@@ -517,46 +516,30 @@ def visualize(traj_arr, odom_data, output_dir):
     R2d = np.array([[c, -s], [s, c]])
     odom_pos[:, :2] = (R2d @ odom_pos[:, :2].T).T
 
-    # Trajectory comparison: Radar SLAM vs Odom
+    # Combined: map + both trajectories
     fig, ax = plt.subplots(figsize=(12, 10))
+
+    map_path = os.path.join(output_dir, "global_map.pcd")
+    if os.path.exists(map_path):
+        pcd = o3d.io.read_point_cloud(map_path)
+        pts = np.asarray(pcd.points)
+        ax.scatter(pts[:, 0], pts[:, 1], s=1, c='green', alpha=0.4, label='Radar map')
+
     ax.plot(slam_pos[:, 0], slam_pos[:, 1], 'b-', lw=2, label='Radar SLAM', alpha=0.8)
     ax.plot(odom_pos[:, 0], odom_pos[:, 1], 'r--', lw=1.5, alpha=0.6, label='Odometry')
     ax.plot(slam_pos[0, 0], slam_pos[0, 1], 'go', ms=12, label='Start', zorder=5)
     ax.plot(slam_pos[-1, 0], slam_pos[-1, 1], 'rs', ms=12, label='End', zorder=5)
     ax.set_xlabel('X (m)', fontsize=12)
     ax.set_ylabel('Y (m)', fontsize=12)
-    ax.set_title('Radar SLAM Trajectory vs Odometry', fontsize=14, fontweight='bold')
+    ax.set_title('Radar SLAM: Map + Trajectories (Bird\'s Eye View)', fontsize=14, fontweight='bold')
     ax.legend(fontsize=11, loc='best')
     ax.set_aspect('equal')
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    path = os.path.join(output_dir, "trajectory_comparison.png")
+    path = os.path.join(output_dir, "radar_slam.png")
     plt.savefig(path, dpi=150, bbox_inches='tight')
     print(f"[VIS] Saved {path}")
     plt.close()
-
-    # 2D map visualization
-    map_path = os.path.join(output_dir, "global_map.pcd")
-    if os.path.exists(map_path):
-        pcd = o3d.io.read_point_cloud(map_path)
-        pts = np.asarray(pcd.points)
-
-        fig, ax = plt.subplots(figsize=(12, 10))
-        ax.scatter(pts[:, 0], pts[:, 1], s=1, c='green', alpha=0.4, label='Radar map')
-        ax.plot(slam_pos[:, 0], slam_pos[:, 1], 'b-', lw=2, alpha=0.7, label='SLAM trajectory')
-        ax.plot(slam_pos[0, 0], slam_pos[0, 1], 'go', ms=12, label='Start', zorder=5)
-        ax.plot(slam_pos[-1, 0], slam_pos[-1, 1], 'rs', ms=12, label='End', zorder=5)
-        ax.set_xlabel('X (m)', fontsize=12)
-        ax.set_ylabel('Y (m)', fontsize=12)
-        ax.set_title('Radar SLAM 2D Map (Bird\'s Eye View)', fontsize=14, fontweight='bold')
-        ax.legend(fontsize=11, loc='best')
-        ax.set_aspect('equal')
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        path = os.path.join(output_dir, "map_2d.png")
-        plt.savefig(path, dpi=150, bbox_inches='tight')
-        print(f"[VIS] Saved {path}")
-        plt.close()
 
 
 ###############################################################################
