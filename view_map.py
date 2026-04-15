@@ -18,15 +18,25 @@ import os
 
 GT_CACHE_PATH = "slam_output/gt_cache.pcd"
 
-PALETTE = [
-    ([0.1, 0.4, 1.0], "Blue"),
-    ([1.0, 0.2, 0.2], "Red"),
-    ([0.1, 0.8, 0.3], "Green"),
-    ([0.7, 0.2, 0.9], "Purple"),
-    ([1.0, 0.6, 0.0], "Orange"),
-    ([0.0, 0.8, 0.8], "Cyan"),
-    ([0.9, 0.9, 0.1], "Yellow"),
-    ([0.9, 0.4, 0.6], "Pink"),
+MODE_COLORS = {
+    'baseline':                ([0.12, 0.47, 0.71], "Blue"),
+    'standard_degraded':       ([1.00, 0.50, 0.05], "Orange"),
+    'heavy_degraded':          ([0.84, 0.15, 0.16], "Red"),
+    'radar':                   ([0.17, 0.63, 0.17], "Green"),
+    'standard_degraded_radar': ([0.09, 0.75, 0.81], "Cyan"),
+    'heavy_degraded_radar':    ([0.58, 0.40, 0.74], "Purple"),
+    'odom_only':               ([0.90, 0.90, 0.10], "Yellow"),
+}
+
+FALLBACK_PALETTE = [
+    ([0.12, 0.47, 0.71], "Blue"),
+    ([0.84, 0.15, 0.16], "Red"),
+    ([0.17, 0.63, 0.17], "Green"),
+    ([0.58, 0.40, 0.74], "Purple"),
+    ([1.00, 0.50, 0.05], "Orange"),
+    ([0.09, 0.75, 0.81], "Cyan"),
+    ([0.90, 0.90, 0.10], "Yellow"),
+    ([0.90, 0.40, 0.60], "Pink"),
 ]
 
 
@@ -84,9 +94,14 @@ def main():
     legend = []
     first_pcd = None
 
-    for i, d in enumerate(args.dirs):
+    fallback_idx = 0
+    for d in args.dirs:
         label = os.path.basename(d.rstrip('/'))
-        color, color_name = PALETTE[i % len(PALETTE)]
+        if label in MODE_COLORS:
+            color, color_name = MODE_COLORS[label]
+        else:
+            color, color_name = FALLBACK_PALETTE[fallback_idx % len(FALLBACK_PALETTE)]
+            fallback_idx += 1
 
         # Load map
         map_path = os.path.join(d, "global_map.pcd")
