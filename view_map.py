@@ -1,21 +1,14 @@
 #!/usr/bin/env python3
 """
-Point Cloud Map Viewer
-=======================
-Visualize the SLAM output: global_map.pcd + trajectory.txt
-
-Controls (Open3D viewer):
-  Left click + drag:  Rotate
-  Scroll:             Zoom
-  Middle click + drag: Pan
-  R:                  Reset view
-  Q / Esc:            Quit
+View SLAM Maps
+================
+View one or more SLAM maps with optional GT overlay.
+GT is automatically aligned to the first map.
 
 Usage:
-  python view_map.py                              # default slam_output/
-  python view_map.py --dir slam_output
-  python view_map.py --pcd global_map.pcd         # just the map
-  python view_map.py --top                        # bird's-eye view
+  python view_map.py slam_output/baseline
+  python view_map.py slam_output/baseline slam_output/standard_degraded --gt
+  python view_map.py slam_output/standard_degraded slam_output/standard_degraded_radar --gt
 """
 
 import argparse
@@ -23,160 +16,136 @@ import numpy as np
 import open3d as o3d
 import os
 
-try:
-    import matplotlib.pyplot as plt
-    HAS_MPL = True
-except ImportError:
-    HAS_MPL = False
+GT_CACHE_PATH = "slam_output/gt_cache.pcd"
+
+PALETTE = [
+    ([0.1, 0.4, 1.0], "Blue"),
+    ([1.0, 0.2, 0.2], "Red"),
+    ([0.1, 0.8, 0.3], "Green"),
+    ([0.7, 0.2, 0.9], "Purple"),
+    ([1.0, 0.6, 0.0], "Orange"),
+    ([0.0, 0.8, 0.8], "Cyan"),
+    ([0.9, 0.9, 0.1], "Yellow"),
+    ([0.9, 0.4, 0.6], "Pink"),
+]
 
 
-def load_map(pcd_path):
-    print(f"Loading map: {pcd_path}")
-    pcd = o3d.io.read_point_cloud(pcd_path)
-    print(f"  {len(pcd.points)} points")
-    return pcd
+def align_gt_to_slam(gt_pcd, slam_pcd, voxel_size=0.5):
+    """RANSAC + ICP to bring GT into SLAM coordinate frame.
+    Runs RANSAC 5 times with 500k iterations, keeps best."""
+    print("[ALIGN] Aligning GT to SLAM frame (5 attempts)...")
+    gt_d = gt_pcd.voxel_down_sample(voxel_size)
+    slam_d = slam_pcd.voxel_down_sample(voxel_size)
 
+    for p in [gt_d, slam_d]:
+        p.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(
+            radius=voxel_size * 3, max_nn=30))
 
-def color_by_height(pcd):
-    """Color points by Z value using viridis colormap."""
-    pts = np.asarray(pcd.points)
-    z = pts[:, 2]
-    z_min, z_max = z.min(), z.max()
-    z_range = z_max - z_min if z_max - z_min > 0.01 else 1.0
-    z_norm = (z - z_min) / z_range
+    gt_f = o3d.pipelines.registration.compute_fpfh_feature(
+        gt_d, o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 5, max_nn=100))
+    slam_f = o3d.pipelines.registration.compute_fpfh_feature(
+        slam_d, o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 5, max_nn=100))
 
-    if HAS_MPL:
-        colors = plt.cm.viridis(z_norm)[:, :3]
-    else:
-        # Simple blue-to-red gradient
-        colors = np.zeros((len(z_norm), 3))
-        colors[:, 0] = z_norm       # red increases with height
-        colors[:, 2] = 1 - z_norm   # blue decreases with height
+    best_T = np.eye(4)
+    best_fitness = -1
 
-    pcd.colors = o3d.utility.Vector3dVector(colors)
-    print(f"  Z range: [{z_min:.2f}, {z_max:.2f}] m")
-    return pcd
+    for attempt in range(5):
+        ransac = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
+            gt_d, slam_d, gt_f, slam_f, True, voxel_size * 2,
+            o3d.pipelines.registration.TransformationEstimationPointToPoint(), 3,
+            [o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
+             o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(voxel_size * 2)],
+            o3d.pipelines.registration.RANSACConvergenceCriteria(500000, 0.9999))
 
+        icp = o3d.pipelines.registration.registration_icp(
+            gt_d, slam_d, voxel_size * 1.5, ransac.transformation,
+            o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=200))
 
-def load_trajectory(traj_path):
-    """Load trajectory and create a red line set."""
-    print(f"Loading trajectory: {traj_path}")
-    data = np.loadtxt(traj_path)
-    positions = data[:, 1:4]
-    print(f"  {len(positions)} poses")
+        if icp.fitness > best_fitness:
+            best_fitness = icp.fitness
+            best_T = icp.transformation
 
-    lines = [[i, i+1] for i in range(len(positions) - 1)]
-    line_set = o3d.geometry.LineSet()
-    line_set.points = o3d.utility.Vector3dVector(positions)
-    line_set.lines = o3d.utility.Vector2iVector(lines)
-    line_set.colors = o3d.utility.Vector3dVector([[1, 0, 0]] * len(lines))
-
-    # Start and end markers as small spheres
-    start_sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.15)
-    start_sphere.translate(positions[0])
-    start_sphere.paint_uniform_color([0, 0.8, 0])  # green
-
-    end_sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.15)
-    end_sphere.translate(positions[-1])
-    end_sphere.paint_uniform_color([0.8, 0, 0])  # red
-
-    return line_set, start_sphere, end_sphere, positions
-
-
-def create_ground_grid(center, size=50, spacing=5):
-    """Create a flat grid on the ground plane for reference."""
-    lines = []
-    points = []
-    idx = 0
-
-    cx, cy = center[0], center[1]
-    half = size / 2
-
-    # Lines along X
-    for y in np.arange(cy - half, cy + half + spacing, spacing):
-        points.append([cx - half, y, 0])
-        points.append([cx + half, y, 0])
-        lines.append([idx, idx + 1])
-        idx += 2
-
-    # Lines along Y
-    for x in np.arange(cx - half, cx + half + spacing, spacing):
-        points.append([x, cy - half, 0])
-        points.append([x, cy + half, 0])
-        lines.append([idx, idx + 1])
-        idx += 2
-
-    grid = o3d.geometry.LineSet()
-    grid.points = o3d.utility.Vector3dVector(points)
-    grid.lines = o3d.utility.Vector2iVector(lines)
-    grid.colors = o3d.utility.Vector3dVector([[0.5, 0.5, 0.5]] * len(lines))
-    return grid
+    print(f"  Best ICP fitness: {best_fitness:.4f}")
+    gt_aligned = o3d.geometry.PointCloud(gt_pcd)
+    gt_aligned.transform(best_T)
+    return gt_aligned
 
 
 def main():
-    parser = argparse.ArgumentParser(description="View SLAM point cloud map")
-    parser.add_argument("--dir", default="slam_output",
-                        help="SLAM output directory")
-    parser.add_argument("--pcd", default=None,
-                        help="Direct path to .pcd file (overrides --dir)")
-    parser.add_argument("--traj", default=None,
-                        help="Direct path to trajectory.txt")
-    parser.add_argument("--no-traj", action="store_true",
-                        help="Don't show trajectory")
-    parser.add_argument("--no-grid", action="store_true",
-                        help="Don't show ground grid")
-    parser.add_argument("--top", action="store_true",
-                        help="Start with bird's-eye (top-down) view")
-    parser.add_argument("--point-size", type=float, default=2.0,
-                        help="Point size (default: 2.0)")
+    parser = argparse.ArgumentParser(description="View SLAM maps")
+    parser.add_argument("dirs", nargs='+',
+                        help="SLAM output directories (e.g. slam_output/baseline)")
+    parser.add_argument("--gt", action="store_true",
+                        help="Overlay ground truth")
     args = parser.parse_args()
 
-    # Resolve paths
-    pcd_path = args.pcd or os.path.join(args.dir, "global_map.pcd")
-    traj_path = args.traj or os.path.join(args.dir, "trajectory.txt")
+    geometries = []
+    legend = []
+    first_pcd = None
 
-    if not os.path.exists(pcd_path):
-        print(f"ERROR: {pcd_path} not found")
+    for i, d in enumerate(args.dirs):
+        label = os.path.basename(d.rstrip('/'))
+        color, color_name = PALETTE[i % len(PALETTE)]
+
+        # Load map
+        map_path = os.path.join(d, "global_map.pcd")
+        if os.path.exists(map_path):
+            pcd = o3d.io.read_point_cloud(map_path)
+            pcd.paint_uniform_color(color)
+            geometries.append(pcd)
+            legend.append((label, color_name))
+            print(f"[MAP] {color_name:<8} {label}: {len(pcd.points)} pts")
+            if first_pcd is None:
+                first_pcd = o3d.geometry.PointCloud(pcd)
+        else:
+            print(f"[MAP] {label}: no global_map.pcd")
+
+        # Load trajectory
+        traj_path = os.path.join(d, "trajectory.txt")
+        if os.path.exists(traj_path):
+            data = np.loadtxt(traj_path)
+            positions = data[:, 1:4]
+            lines = [[j, j + 1] for j in range(len(positions) - 1)]
+            ls = o3d.geometry.LineSet()
+            ls.points = o3d.utility.Vector3dVector(positions)
+            ls.lines = o3d.utility.Vector2iVector(lines)
+            bright = [min(1.0, c + 0.3) for c in color]
+            ls.colors = o3d.utility.Vector3dVector([bright] * len(lines))
+            geometries.append(ls)
+
+    # GT
+    if args.gt and first_pcd is not None:
+        if not os.path.exists(GT_CACHE_PATH):
+            print(f"[GT] No cache at {GT_CACHE_PATH}")
+            print(f"  Run: python compare.py --gt /path/to/GT.las")
+        else:
+            gt_raw = o3d.io.read_point_cloud(GT_CACHE_PATH)
+            gt_aligned = align_gt_to_slam(gt_raw, first_pcd)
+            gt_aligned.paint_uniform_color([0.5, 0.5, 0.5])
+            geometries.append(gt_aligned)
+            legend.append(("Ground Truth", "Gray"))
+            print(f"[GT]  Gray     Ground Truth: {len(gt_aligned.points)} pts")
+
+    if not geometries:
+        print("Nothing to display.")
         return
 
-    # Load map
-    pcd = load_map(pcd_path)
-    pcd = color_by_height(pcd)
-    geometries = [pcd]
+    # Legend
+    print(f"\n{'='*35}")
+    for label, color_name in legend:
+        print(f"  {color_name:<10} {label}")
+    print(f"{'='*35}")
 
-    # Load trajectory
-    traj_center = np.array([0, 0, 0])
-    if not args.no_traj and os.path.exists(traj_path):
-        line_set, start_s, end_s, positions = load_trajectory(traj_path)
-        geometries.extend([line_set, start_s, end_s])
-        traj_center = positions.mean(axis=0)
-
-    # Ground grid
-    if not args.no_grid:
-        grid = create_ground_grid(traj_center)
-        geometries.append(grid)
-
-    # Visualize
+    # Viewer
     vis = o3d.visualization.Visualizer()
-    vis.create_window(window_name="SLAM Map Viewer", width=1400, height=900)
-
+    vis.create_window(window_name="Map Viewer", width=1400, height=900)
     for g in geometries:
         vis.add_geometry(g)
-
-    # Render options
     opt = vis.get_render_option()
-    opt.point_size = args.point_size
-    opt.background_color = np.array([0.1, 0.1, 0.1])  # dark background
+    opt.point_size = 2.0
+    opt.background_color = np.array([0.1, 0.1, 0.1])
     opt.show_coordinate_frame = True
-
-    # Camera setup
-    if args.top:
-        ctrl = vis.get_view_control()
-        ctrl.set_front([0, 0, 1])    # looking down
-        ctrl.set_up([0, 1, 0])       # Y is up in screen
-        ctrl.set_lookat(traj_center)
-        ctrl.set_zoom(0.3)
-
     vis.run()
     vis.destroy_window()
 
