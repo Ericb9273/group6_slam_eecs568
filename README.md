@@ -4,7 +4,7 @@ Multi-mode SLAM implementation comparing LiDAR-only, radar fusion, and degradati
 
 ## slam.py — Multi-Mode SLAM
 
-Main SLAM pipeline with 7 modes. Outputs trajectories and maps to `slam_output/<mode>/`.
+Main SLAM pipeline with 8 modes. Outputs trajectories and maps to `slam_output/<mode>/`.
 
 **Usage:**
 ```bash
