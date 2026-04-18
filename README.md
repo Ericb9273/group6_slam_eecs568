@@ -34,7 +34,7 @@ python slam.py --bag <path_to_bag> [--mode MODE] [--output DIR]
 *No SLAM:*
 - `odom_only`: Pure odometry (no ICP correction)
 
-> **Note:** In all modes, the global map is built using the **original undegraded LiDAR scans** at the SLAM-estimated poses. This ensures all modes produce 3D maps that can be directly compared against ground truth — the degradation only affects pose estimation, not the map itself.
+> **Note:** In all modes, the global map is built using the **original undegraded LiDAR scans** at the SLAM-estimated poses. This ensures all modes produce 3D maps that can be directly compared against ground truth. The degradation only affects pose estimation, not the map itself.
 
 **Examples:**
 ```bash
@@ -46,9 +46,7 @@ python slam.py --bag data.bag --mode standard_degraded heavy_degraded_radar
 **Outputs:** `slam_output/<mode>/`
 - `trajectory.txt`: Pose estimates
 - `global_map.pcd`: 3D point cloud map
-- `fitness_log.txt`: ICP fitness values
 - `trajectory_2d.png`, `trajectory_3d.png`: Trajectory plots
-- `fusion_diagnostics.png`: Radar/LiDAR fitness and fusion weights (radar modes only)
 
 ---
 
@@ -89,7 +87,6 @@ python compare.py [--dir DIR] [--gt PATH_TO_GT.las]
 - `comparison_2d.png`: 2D trajectories (bird's eye)
 - `comparison_3d.png`: 3D trajectories
 - `comparison_height.png`: Height profiles over time
-- `comparison_fitness.png`: ICP fitness over time
 - `accuracy_comparison.png`: Mean/median/RMSE/90th %ile error vs GT
 - `gt_cache.pcd`: Cached ground truth (created on first run)
 

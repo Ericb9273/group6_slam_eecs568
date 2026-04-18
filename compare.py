@@ -59,12 +59,6 @@ def load_trajectory(traj_path):
     return data[:, 0], data[:, 1:4]
 
 
-def load_fitness(fit_path):
-    if os.path.exists(fit_path):
-        return np.loadtxt(fit_path)
-    return None
-
-
 ###############################################################################
 # GT
 ###############################################################################
@@ -271,27 +265,6 @@ def plot_height(slam_dir, modes):
     plt.close()
 
 
-def plot_fitness(slam_dir, modes):
-    fig, ax = plt.subplots(figsize=(14, 5))
-    for mode in modes:
-        fitness = load_fitness(os.path.join(slam_dir, mode, "fitness_log.txt"))
-        if fitness is None:
-            continue
-        color, label = COLORS.get(mode, ('gray', mode))
-        window = min(50, len(fitness) // 10 + 1)
-        if window > 1:
-            smooth = np.convolve(fitness, np.ones(window) / window, mode='valid')
-            ax.plot(smooth, color=color, lw=1.5, label=f'{label} (avg)')
-        else:
-            ax.plot(fitness, color=color, lw=1, alpha=0.7, label=label)
-    ax.set_xlabel('Scan Index'); ax.set_ylabel('ICP Fitness')
-    ax.set_title('ICP Fitness Over Time'); ax.legend(); ax.grid(True, alpha=0.3)
-    ax.set_ylim(0, 1)
-    plt.tight_layout()
-    plt.savefig(os.path.join(slam_dir, "comparison_fitness.png"), dpi=150)
-    plt.close()
-
-
 def plot_gt_comparison(slam_dir, gt_results):
     if not gt_results:
         return
@@ -327,16 +300,14 @@ def plot_gt_comparison(slam_dir, gt_results):
 
 
 def print_summary(slam_dir, modes):
-    print(f"\n{'='*75}")
-    print(f"{'Mode':<25} {'Scans':>6} {'Avg Fitness':>12}")
-    print(f"{'-'*75}")
+    print(f"\n{'='*60}")
+    print(f"{'Mode':<25} {'Scans':>6}")
+    print(f"{'-'*60}")
     for mode in modes:
         t, pos = load_trajectory(os.path.join(slam_dir, mode, "trajectory.txt"))
-        fitness = load_fitness(os.path.join(slam_dir, mode, "fitness_log.txt"))
-        avg_f = np.mean(fitness) if fitness is not None else 0
         _, label = COLORS.get(mode, ('', mode))
-        print(f"{label:<25} {len(t):>6} {avg_f:>12.3f}")
-    print(f"{'='*75}")
+        print(f"{label:<25} {len(t):>6}")
+    print(f"{'='*60}")
 
 
 ###############################################################################

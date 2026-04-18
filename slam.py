@@ -868,9 +868,6 @@ def save_results(trajectory, map_pcds, fitness_log, output_dir):
         o3d.io.write_point_cloud(os.path.join(output_dir, "global_map.pcd"), combined)
         print(f"[SAVE] Map: {len(combined.points)} pts -> {output_dir}")
 
-    np.savetxt(os.path.join(output_dir, "fitness_log.txt"),
-               np.array(fitness_log), fmt="%.4f")
-
     print(f"[SAVE] Trajectory: {len(traj_arr)} poses -> {output_dir}")
     return traj_arr
 
@@ -923,52 +920,6 @@ def visualize_mode(traj_arr, odom_data, output_dir, mode_name,
     ax.set_title(f'{mode_name} — 3D Trajectory'); ax.legend()
     plt.savefig(os.path.join(output_dir, "trajectory_3d.png"), dpi=150, bbox_inches='tight')
     plt.close()
-
-    # Fusion diagnostics (only for modes with radar data)
-    has_radar = (radar_fit_log is not None and len(radar_fit_log) > 0
-                 and any(r > 0 for r in radar_fit_log))
-    if has_radar:
-        r_fit = np.array(radar_fit_log[:len(t_rel)])
-        w_rad = np.array(weight_log[:len(t_rel)])
-        l_fit = np.array(fitness_log[:len(t_rel)]) if fitness_log else np.zeros(len(t_rel))
-
-        fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
-
-        ax = axes[0]
-        ax.plot(t_rel, l_fit, 'b-', lw=1, alpha=0.7, label='LiDAR fitness')
-        window = min(20, len(l_fit) // 10 + 1)
-        if window > 1:
-            smooth = np.convolve(l_fit, np.ones(window)/window, mode='same')
-            ax.plot(t_rel, smooth, 'b-', lw=2, alpha=0.9, label=f'LiDAR (avg {window})')
-        ax.set_ylabel('LiDAR Fitness')
-        ax.set_ylim(0, 1.05)
-        ax.legend(); ax.grid(True, alpha=0.3)
-
-        ax = axes[1]
-        ax.plot(t_rel, r_fit, 'g-', lw=1, alpha=0.7, label='Radar fitness')
-        if window > 1:
-            smooth_r = np.convolve(r_fit, np.ones(window)/window, mode='same')
-            ax.plot(t_rel, smooth_r, 'g-', lw=2, alpha=0.9, label=f'Radar (avg {window})')
-        ax.set_ylabel('Radar Fitness')
-        ax.set_ylim(0, 1.05)
-        ax.legend(); ax.grid(True, alpha=0.3)
-
-        ax = axes[2]
-        ax.plot(t_rel, w_rad, 'r-', lw=1, alpha=0.7, label='w_radar')
-        if window > 1:
-            smooth_w = np.convolve(w_rad, np.ones(window)/window, mode='same')
-            ax.plot(t_rel, smooth_w, 'r-', lw=2, alpha=0.9, label=f'w_radar (avg {window})')
-        ax.set_ylabel('Radar Weight')
-        ax.set_ylim(0, 0.65)
-        ax.set_xlabel('Time (s)')
-        ax.legend(); ax.grid(True, alpha=0.3)
-
-        plt.suptitle(f'{mode_name} — Fusion Diagnostics', fontsize=14)
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "fusion_diagnostics.png"),
-                    dpi=150, bbox_inches='tight')
-        plt.close()
-        print(f"[VIS] Saved fusion_diagnostics.png to {output_dir}")
 
     print(f"[VIS] Saved plots to {output_dir}")
 
