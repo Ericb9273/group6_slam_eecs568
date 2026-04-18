@@ -18,8 +18,8 @@ python slam.py --bag <path_to_bag> [--mode MODE] [--output DIR]
 
 **Modes:**
 - `baseline`: LiDAR + odometry (reference)
-- `standard_degraded`: LiDAR with mild fog/rain simulation + odometry
-- `heavy_degraded`: LiDAR with heavy dust/snow simulation + odometry
+- `standard_degraded`: LiDAR with mild fog/dust simulation + odometry
+- `heavy_degraded`: LiDAR with heavy fog/dust simulation + odometry
 - `radar`: LiDAR + radar fusion (30% radar weight)
 - `standard_degraded_radar`: Standard degraded + radar (70% radar weight)
 - `heavy_degraded_radar`: Heavy degraded + radar (90% radar weight)
