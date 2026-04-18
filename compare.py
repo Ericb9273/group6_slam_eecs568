@@ -295,7 +295,11 @@ def plot_fitness(slam_dir, modes):
 def plot_gt_comparison(slam_dir, gt_results):
     if not gt_results:
         return
-    modes = list(gt_results.keys())
+    mode_order = ['odom_only', 'radar_only', 'baseline', 'radar',
+                  'standard_degraded', 'standard_degraded_radar',
+                  'heavy_degraded', 'heavy_degraded_radar']
+    modes = [m for m in mode_order if m in gt_results]
+    modes += [m for m in gt_results if m not in mode_order]
     fig, ax = plt.subplots(figsize=(14, 6))
     x = np.arange(len(modes))
     width = 0.2

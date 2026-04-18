@@ -17,14 +17,24 @@ python slam.py --bag <path_to_bag> [--mode MODE] [--output DIR]
 - `--output`: Output directory (default: slam_output)
 
 **Modes:**
-- `baseline`: LiDAR + odometry (reference)
-- `standard_degraded`: LiDAR with mild fog/dust simulation + odometry
-- `heavy_degraded`: LiDAR with heavy fog/dust simulation + odometry
-- `radar`: LiDAR + radar fusion (30% radar weight)
-- `standard_degraded_radar`: Standard degraded + radar (70% radar weight)
-- `heavy_degraded_radar`: Heavy degraded + radar (90% radar weight)
-- `radar_only`: Radar-only pose estimation with LiDAR mapping
-- `odom_only`: Pure odometry (no SLAM correction)
+
+*LiDAR + odom SLAM (LiDAR scan matching against a LiDAR submap, initialized with odom):*
+- `baseline`: Clean LiDAR (reference)
+- `standard_degraded`: LiDAR with mild fog/dust simulation
+- `heavy_degraded`: LiDAR with heavy fog/dust simulation
+
+*LiDAR + radar + odom SLAM (LiDAR ICP and radar ICP fused, initialized with odom):*
+- `radar`: Clean LiDAR + radar (30% radar weight)
+- `standard_degraded_radar`: Standard degraded LiDAR + radar (70% radar weight)
+- `heavy_degraded_radar`: Heavy degraded LiDAR + radar (90% radar weight)
+
+*Radar + odom SLAM (radar ICP only for pose, initialized with odom):*
+- `radar_only`: Radar-only pose estimation
+
+*No SLAM:*
+- `odom_only`: Pure odometry (no ICP correction)
+
+> **Note:** In all modes, the global map is built using the **original undegraded LiDAR scans** at the SLAM-estimated poses. This ensures all modes produce 3D maps that can be directly compared against ground truth — the degradation only affects pose estimation, not the map itself.
 
 **Examples:**
 ```bash
