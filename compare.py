@@ -33,11 +33,12 @@ COLORS = {
     'radar':                 ('tab:green',  'LiDAR + Radar'),
     'standard_degraded_radar': ('tab:cyan',   'Standard Degraded + Radar'),
     'heavy_degraded_radar':  ('tab:purple', 'Heavy Degraded + Radar'),
+    'radar_only':            ('goldenrod',  'Radar Only'),
     'odom_only':             ('tab:gray',   'Odom Only'),
 }
 
 # Modes to skip for GT comparison (2D radar can't compare to 3D GT)
-SKIP_GT = {'radar_only'}
+SKIP_GT = set()
 
 
 ###############################################################################

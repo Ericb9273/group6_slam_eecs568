@@ -11,6 +11,7 @@ Modes:
   radar                 - LiDAR + radar fusion (30% radar weight)
   standard_degraded_radar  - Standard degraded + radar (70% radar weight)
   heavy_degraded_radar     - Heavy degraded + radar (90% radar weight)
+  radar_only            - Radar-only pose estimation, LiDAR mapping
   odom_only             - Pure odometry (no SLAM correction)
 
 Usage:
@@ -40,7 +41,7 @@ from scipy.interpolate import interp1d
 
 ALL_MODES = ['baseline', 'standard_degraded', 'heavy_degraded',
              'radar', 'standard_degraded_radar', 'heavy_degraded_radar',
-             'odom_only']
+             'radar_only', 'odom_only']
 
 
 ###############################################################################
@@ -500,6 +501,112 @@ def make_radar_pcd(pts, voxel_size=0.3):
 
 
 ###############################################################################
+# 9b. RADAR SUBMAP, ICP, AND SCAN BUILDER (matches radar_slam.py params)
+###############################################################################
+
+class _RadarOnlySubmap:
+    def __init__(self, max_scans=10, voxel_size=0.15):
+        self.max_scans = max_scans
+        self.voxel_size = voxel_size
+        self.scan_queue = deque()
+        self.combined = None
+
+    def add_scan(self, pts_base, T_world):
+        if pts_base is None or len(pts_base) < 3:
+            return
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(pts_base)
+        pcd_world = pcd.transform(T_world)
+        self.scan_queue.append(pcd_world)
+        while len(self.scan_queue) > self.max_scans:
+            self.scan_queue.popleft()
+        self._rebuild()
+
+    def _rebuild(self):
+        combined = o3d.geometry.PointCloud()
+        for pcd in self.scan_queue:
+            combined += pcd
+        if len(combined.points) > 10:
+            combined = combined.voxel_down_sample(self.voxel_size)
+        self.combined = combined
+
+    def get(self):
+        return self.combined
+
+    def size(self):
+        return len(self.combined.points) if self.combined else 0
+
+
+def _filter_statistical(pts, nb_neighbors=8, std_ratio=1.5):
+    """Statistical + radius outlier removal (same as radar_slam.py)."""
+    if pts is None or len(pts) < 20:
+        return pts
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(pts)
+    filtered, _ = pcd.remove_statistical_outlier(
+        nb_neighbors=nb_neighbors, std_ratio=std_ratio)
+    if len(filtered.points) > 20:
+        filtered, _ = filtered.remove_radius_outlier(nb_points=5, radius=1.0)
+    if len(filtered.points) < 5:
+        return pts
+    return np.asarray(filtered.points)
+
+
+def _build_radar_scan(t_scan, radar1_data, radar2_data, odom,
+                      T_r1_to_base, T_r2_to_base,
+                      t_window=4.0, min_range=0.5, max_range=5.0):
+    """Build one filtered, motion-compensated radar scan from both radars."""
+    all_pts = []
+    for rdata, T_r in [(radar1_data, T_r1_to_base), (radar2_data, T_r2_to_base)]:
+        hits = find_nearest_radar(t_scan, rdata, t_window)
+        if hits:
+            pts = accumulate_radar_compensated(hits, t_scan, odom, T_r,
+                                               min_range, max_range)
+            if pts is not None:
+                all_pts.append(pts)
+    if all_pts:
+        combined = np.vstack(all_pts)
+        return _filter_statistical(combined)
+    return None
+
+
+def _radar_icp(radar_pts, submap, T_init, max_dist=0.5):
+    """Multi-resolution ICP for sparse radar (same as radar_slam.py).
+    Coarse pass then fine pass. Returns (transform, fitness) or (None, 0.0)."""
+    target = submap.get()
+    if target is None or len(target.points) < 30:
+        return None, 0.0
+
+    src = o3d.geometry.PointCloud()
+    src.points = o3d.utility.Vector3dVector(radar_pts)
+    if len(src.points) < 15:
+        return None, 0.0
+
+    try:
+        # Coarse
+        r1 = o3d.pipelines.registration.registration_icp(
+            src, target, max_dist, T_init,
+            o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+            o3d.pipelines.registration.ICPConvergenceCriteria(
+                max_iteration=30, relative_fitness=1e-6, relative_rmse=1e-6))
+
+        # Fine
+        r2 = o3d.pipelines.registration.registration_icp(
+            src, target, max_dist * 0.5, r1.transformation,
+            o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+            o3d.pipelines.registration.ICPConvergenceCriteria(
+                max_iteration=30, relative_fitness=1e-6, relative_rmse=1e-6))
+
+        n_inliers = int(r2.fitness * len(src.points))
+        if n_inliers < 10 or r2.fitness < 0.2:
+            return None, r2.fitness
+
+        return r2.transformation, r2.fitness
+    except:
+        return None, 0.0
+
+
+###############################################################################
 # 10. SLAM LOOP
 ###############################################################################
 
@@ -530,11 +637,16 @@ def run_slam(lidar_data, odom_data, T_lidar_to_base,
         degrader = LiDARDegrader(severity='heavy')
         radar_weight = 0.9
 
-    if mode in ('radar', 'standard_degraded_radar', 'heavy_degraded_radar'):
+    radar_only_mode = (mode == 'radar_only')
+
+    if mode in ('radar', 'standard_degraded_radar', 'heavy_degraded_radar', 'radar_only'):
         use_radar = True
         T_r1_to_base, T_r2_to_base = get_radar_to_base()
         radar_submap = _RadarOnlySubmap(max_scans=10, voxel_size=0.15)
-        print(f"[RADAR] Separate radar constraint ON (weight={radar_weight})")
+        if radar_only_mode:
+            print(f"[RADAR] Radar-only pose estimation, LiDAR mapping")
+        else:
+            print(f"[RADAR] Separate radar constraint ON (weight={radar_weight})")
 
     x0, y0, z0, yaw0 = odom.get_pose(lidar_data[0][0])
     global_pose = pose_to_T(x0, y0, z0, yaw0)
@@ -633,43 +745,74 @@ def run_slam(lidar_data, odom_data, T_lidar_to_base,
         T_odom_rel = odom.get_relative_transform(t_prev, t_scan)
         T_init = trajectory[-1][1] @ T_odom_rel
 
-        # --- LiDAR ICP: lidar scan vs lidar-only submap ---
-        T_lidar, fitness, rmse = matcher.match(cur_pcd, submap.get(), T_init)
-        lidar_ok = fitness >= 0.15
-        if not lidar_ok:
-            low_fit += 1
-            T_lidar = T_init
+        # --- Radar-only mode: skip lidar ICP, use radar ICP + odom ---
+        if radar_only_mode:
+            fitness = 0.0
+            rmse = 0.0
+            r_fit = 0.0
+            w_radar = 0.0
+            T_result = T_init
 
-        # --- Radar ICP: radar scan vs radar-only submap ---
-        T_radar_result = None
-        r_fit = 0.0
-        w_radar = 0.0
-        if use_radar and radar_pts is not None and radar_submap.size() >= 40:
-            T_radar_icp, r_fit = _radar_icp(radar_pts, radar_submap, T_init)
-            if T_radar_icp is not None:
-                T_radar_result = T_radar_icp
-                radar_corrections += 1
+            if radar_pts is not None and len(radar_pts) >= 15 and radar_submap.size() >= 50:
+                T_icp, r_fit = _radar_icp(radar_pts, radar_submap, T_init, max_dist=0.5)
+                if T_icp is not None and r_fit > 0.2:
+                    # Adaptive blend: same as radar_slam.py
+                    w = min(0.5, r_fit * 0.6)
+                    yaw_odom = rot_to_yaw(T_init[:3, :3])
+                    yaw_icp = rot_to_yaw(T_icp[:3, :3])
+                    dyaw = np.arctan2(np.sin(yaw_icp - yaw_odom),
+                                      np.cos(yaw_icp - yaw_odom))
+                    T_result = np.eye(4)
+                    T_result[:3, :3] = yaw_to_rot(yaw_odom + w * dyaw)
+                    T_result[:3, 3] = (1 - w) * T_init[:3, 3] + w * T_icp[:3, 3]
+                    radar_corrections += 1
+                    w_radar = w
 
-        # --- Fuse: blend LiDAR + radar pose estimates ---
-        if T_radar_result is not None:
-            w_radar = radar_weight
+            global_pose = T_result.copy()
+            global_pose[2, 3] = 0.0
+            global_pose[:3, :3] = yaw_to_rot(rot_to_yaw(global_pose[:3, :3]))
+            fitness_log.append(r_fit)
+            radar_fit_log.append(r_fit)
+            weight_log.append(w_radar)
 
-            yaw_l = rot_to_yaw(T_lidar[:3, :3])
-            yaw_r = rot_to_yaw(T_radar_result[:3, :3])
-            dyaw = np.arctan2(np.sin(yaw_r - yaw_l), np.cos(yaw_r - yaw_l))
-            global_pose = np.eye(4)
-            global_pose[:3, :3] = yaw_to_rot(yaw_l + w_radar * dyaw)
-            global_pose[:3, 3] = (1-w_radar)*T_lidar[:3, 3] + w_radar*T_radar_result[:3, 3]
         else:
-            global_pose = T_lidar.copy()
+            # --- LiDAR ICP: lidar scan vs lidar-only submap ---
+            T_lidar, fitness, rmse = matcher.match(cur_pcd, submap.get(), T_init)
+            lidar_ok = fitness >= 0.15
+            if not lidar_ok:
+                low_fit += 1
+                T_lidar = T_init
 
-        global_pose[2, 3] *= 0.9
-        global_pose[:3, :3] = yaw_to_rot(rot_to_yaw(global_pose[:3, :3]))
+            # --- Radar ICP: radar scan vs radar-only submap ---
+            T_radar_result = None
+            r_fit = 0.0
+            w_radar = 0.0
+            if use_radar and radar_pts is not None and radar_submap.size() >= 50:
+                T_radar_icp, r_fit = _radar_icp(radar_pts, radar_submap, T_init)
+                if T_radar_icp is not None:
+                    T_radar_result = T_radar_icp
+                    radar_corrections += 1
+
+            # --- Fuse: blend LiDAR + radar pose estimates ---
+            if T_radar_result is not None:
+                w_radar = radar_weight
+
+                yaw_l = rot_to_yaw(T_lidar[:3, :3])
+                yaw_r = rot_to_yaw(T_radar_result[:3, :3])
+                dyaw = np.arctan2(np.sin(yaw_r - yaw_l), np.cos(yaw_r - yaw_l))
+                global_pose = np.eye(4)
+                global_pose[:3, :3] = yaw_to_rot(yaw_l + w_radar * dyaw)
+                global_pose[:3, 3] = (1-w_radar)*T_lidar[:3, 3] + w_radar*T_radar_result[:3, 3]
+            else:
+                global_pose = T_lidar.copy()
+
+            global_pose[2, 3] *= 0.9
+            global_pose[:3, :3] = yaw_to_rot(rot_to_yaw(global_pose[:3, :3]))
+            fitness_log.append(fitness)
+            radar_fit_log.append(r_fit)
+            weight_log.append(w_radar)
 
         trajectory.append((t_scan, global_pose.copy()))
-        fitness_log.append(fitness)
-        radar_fit_log.append(r_fit)
-        weight_log.append(w_radar)
         submap.add_scan(cur_pcd, global_pose)
         if use_radar and radar_pts is not None:
             radar_submap.add_scan(radar_pts, global_pose)
@@ -912,7 +1055,8 @@ def main():
                 print(f"Unknown mode: {m}. Choose from: {ALL_MODES}")
                 return
 
-    need_radar = any(m in ('radar', 'standard_degraded_radar', 'heavy_degraded_radar')
+    need_radar = any(m in ('radar', 'standard_degraded_radar', 'heavy_degraded_radar',
+                          'radar_only')
                      for m in modes)
 
     T_l2b = get_lidar_to_base()

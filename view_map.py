@@ -25,6 +25,7 @@ MODE_COLORS = {
     'radar':                   ([0.17, 0.63, 0.17], "Green"),
     'standard_degraded_radar': ([0.09, 0.75, 0.81], "Cyan"),
     'heavy_degraded_radar':    ([0.58, 0.40, 0.74], "Purple"),
+    'radar_only':              ([0.85, 0.65, 0.13], "Gold"),
     'odom_only':               ([0.90, 0.90, 0.10], "Yellow"),
 }
 

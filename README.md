@@ -23,6 +23,7 @@ python slam.py --bag <path_to_bag> [--mode MODE] [--output DIR]
 - `radar`: LiDAR + radar fusion (30% radar weight)
 - `standard_degraded_radar`: Standard degraded + radar (70% radar weight)
 - `heavy_degraded_radar`: Heavy degraded + radar (90% radar weight)
+- `radar_only`: Radar-only pose estimation with LiDAR mapping
 - `odom_only`: Pure odometry (no SLAM correction)
 
 **Examples:**
